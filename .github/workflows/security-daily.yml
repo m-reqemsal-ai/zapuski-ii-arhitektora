@@ -26,7 +26,7 @@ env:
   QLOG: ${{ github.workspace }}/trial/results/runlogs/security-daily-${{ github.run_number }}.txt
 defaults:
   run:
-    shell: ${{ runner.temp }}/quiet.sh {0}
+    shell: /home/runner/work/_temp/quiet.sh {0}
 
 jobs:
   run:
