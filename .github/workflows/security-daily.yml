@@ -99,6 +99,7 @@ jobs:
       # the Owner does not read it; Claude reads it and sends him a short result. To turn it on, put back the step
       # `send_telegram.py --digests digests/security --state registry/security/telegram_state.json`.
       - name: Записать в хранилище
+        shell: bash
         if: always()
         run: |
           git config user.name "github-actions[bot]"

@@ -60,7 +60,9 @@ jobs:
         continue-on-error: true
         run: |
           python3 -I programs/channels/test_select.py
+          python3 -I programs/channels/test_new_admitted.py
           python3 programs/channels/select_channels.py
+          python3 programs/channels/new_admitted.py
       - name: Пересмотр языков поиска (раз в месяц, отчёт каждый день)
         run: python3 -I programs/collector/rotate_languages.py
       - name: Сборщик видео по темам и языкам
@@ -135,12 +137,13 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python3 -I programs/control/flow_check.py "trial/results/cards-daily-${{ github.run_number }}"
       - name: Записать в хранилище
+        shell: bash
         if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add trial/results/runlogs 2>/dev/null || true
-          git add registry/video_meta.json registry/triage.json registry/start_collection.json registry/found_videos.json registry/channel_videos.json registry/collector_state.json registry/collector_queries.json registry/language_history.json registry/languages.json registry/languages_report.json registry/models_watch.json registry/channels.json registry/key_limits.json registry/control/flow.json registry/control/gate.json registry/cards "trial/results/cards-daily-${{ github.run_number }}" 2>/dev/null || true
+          git add registry/video_meta.json registry/triage.json registry/start_collection.json registry/found_videos.json registry/channel_videos.json registry/collector_state.json registry/collector_queries.json registry/language_history.json registry/languages.json registry/languages_report.json registry/models_watch.json registry/channels.json registry/channel_admissions.json registry/key_limits.json registry/control/flow.json registry/control/gate.json registry/cards "trial/results/cards-daily-${{ github.run_number }}" 2>/dev/null || true
           git diff --cached --quiet && { echo "nothing new"; exit 0; }
           git commit -m "Карточки видео: ежедневный прогон ${{ github.run_number }}"
           pushed=0
