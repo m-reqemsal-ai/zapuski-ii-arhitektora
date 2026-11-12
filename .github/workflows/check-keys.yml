@@ -64,6 +64,7 @@ jobs:
           fi
           echo "$rc" > /tmp/check_rc
       - name: Записать отметку в хранилище
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -72,7 +73,7 @@ jobs:
           git diff --cached --quiet && { echo "nothing new"; } || {
             git commit -m "Проверка ключей: отметка о выполнении"
             for i in 1 2 3; do
-              if git pull --rebase -q origin main && git push -q origin HEAD:main; then break; fi
+              if git pull --rebase origin main && git push origin HEAD:main; then break; fi
               git rebase --abort 2>/dev/null || true
               sleep 5
             done
