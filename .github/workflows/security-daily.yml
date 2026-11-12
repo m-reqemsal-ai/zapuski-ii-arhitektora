@@ -1,0 +1,121 @@
+name: Источники по безопасности сайтов (каждый день)
+
+# Same programs as sources-daily.yml, own configuration and own files (registry/security, digests/security,
+# reference/security). Daily: new items from security sources (free, no AI request).
+# About weekly, on the 1st, 8th, 15th and 22nd (or on demand): Gemini summary in Russian -> digests/security/.
+on:
+  schedule:
+    - cron: "45 6 * * *"   # 06:45 UTC = 10:45 Baku
+  workflow_dispatch:
+    inputs:
+      force_digest:
+        description: "Сделать сводку сегодня (yes/no)"
+        default: "no"
+      only:
+        description: "Только эти источники (id через запятую; пусто = все)"
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: security-sources
+  cancel-in-progress: false
+
+env:
+  QLOG: ${{ github.workspace }}/trial/results/runlogs/security-daily-${{ github.run_number }}.txt
+defaults:
+  run:
+    shell: ${{ runner.temp }}/quiet.sh {0}
+
+jobs:
+  run:
+    name: Сбор и сводка по безопасности
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: m-reqemsal-ai/ii-arhitektor
+          ref: main
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+      - name: Тихий запуск (подробности только в закрытом хранилище)
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "$QLOG")"
+          cat > "$RUNNER_TEMP/quiet.sh" <<'QEOF'
+          #!/bin/bash
+          bash --noprofile --norc -eo pipefail "$1" >> "$QLOG" 2>&1
+          rc=$?
+          echo "[шаг завершён, код $rc]" >> "$QLOG"
+          [ $rc -ne 0 ] && echo "Шаг завершился с ошибкой, код $rc (подробности в закрытом хранилище)"
+          exit $rc
+          QEOF
+          chmod +x "$RUNNER_TEMP/quiet.sh"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Установка
+        run: pip install "google-genai==2.28.0"
+      - name: Проверка без запросов
+        run: |
+          python3 programs/sources/test_sources.py
+          python3 -I programs/sources/test_delivery.py
+      - name: Сбор новых записей
+        run: >
+          python3 -u programs/sources/collect_sources.py
+          --config registry/security/sources.json
+          --state registry/security/sources_state.json
+          --items registry/security/source_items.json
+          --report registry/security/sources_report.json
+          ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
+      - name: Сводка (1, 8, 15 и 22 числа)
+        if: always()
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
+          GEMINI_API_KEY_6: ${{ secrets.GEMINI_API_KEY_6 }}
+          GEMINI_API_KEY_7: ${{ secrets.GEMINI_API_KEY_7 }}
+          GEMINI_API_KEY_8: ${{ secrets.GEMINI_API_KEY_8 }}
+          GEMINI_API_KEY_9: ${{ secrets.GEMINI_API_KEY_9 }}
+        run: >
+          python3 -u programs/sources/digest.py
+          --config registry/security/sources.json
+          --items registry/security/source_items.json
+          --report registry/security/sources_report.json
+          --out-dir digests/security
+          ${{ github.event.inputs.force_digest == 'yes' && '--force' || '' }}
+      - name: Подготовка обновления справочника (только подтверждённое)
+        if: always()
+        run: >
+          python3 -u programs/sources/prepare_reference_update.py
+          --digests digests/security
+          --out-dir reference/security/updates
+          --disputed registry/security/reference_disputed.json
+      # Telegram sending is off on purpose (Owner, 2026-10-29): the whole digest is long (several messages) and
+      # the Owner does not read it; Claude reads it and sends him a short result. To turn it on, put back the step
+      # `send_telegram.py --digests digests/security --state registry/security/telegram_state.json`.
+      - name: Записать в хранилище
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trial/results/runlogs 2>/dev/null || true
+          for p in registry/security digests/security reference/security; do [ -e "$p" ] && git add "$p"; done
+          git diff --cached --quiet && { echo "nothing new"; exit 0; }
+          git commit -m "Источники по безопасности сайтов: прогон ${{ github.run_number }}"
+          pushed=0
+          for i in 1 2 3; do
+            if git pull --rebase -q origin main && git push -q origin HEAD:main; then pushed=1; break; fi
+            git rebase --abort 2>/dev/null || true
+            sleep 5
+          done
+          if [ "$pushed" != 1 ]; then
+            # Never lose a finished run: keep its commit on a side branch and turn the run red.
+            git push -q origin "HEAD:refs/heads/pending-run-${{ github.run_number }}" || true
+            echo "::error::Results could not be merged into main; saved on branch pending-run-${{ github.run_number }}"
+            exit 1
+          fi

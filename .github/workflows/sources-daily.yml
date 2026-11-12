@@ -1,0 +1,127 @@
+name: Источники новостей ИИ (каждый день)
+
+# Daily: new items from official blogs, model catalogs and ratings (free, no AI request).
+# On the 1st and 16th (or on demand): Gemini summary in Russian -> digests/.
+on:
+  schedule:
+    - cron: "15 6 * * *"   # 06:15 UTC = 10:15 Baku
+  workflow_dispatch:
+    inputs:
+      force_digest:
+        description: "Сделать сводку сегодня (yes/no)"
+        default: "no"
+      only:
+        description: "Только эти источники (id через запятую; пусто = все)"
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sources
+  cancel-in-progress: false
+
+env:
+  QLOG: ${{ github.workspace }}/trial/results/runlogs/sources-daily-${{ github.run_number }}.txt
+defaults:
+  run:
+    shell: ${{ runner.temp }}/quiet.sh {0}
+
+jobs:
+  run:
+    name: Сбор и сводка
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: m-reqemsal-ai/ii-arhitektor
+          ref: main
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+      - name: Тихий запуск (подробности только в закрытом хранилище)
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "$QLOG")"
+          cat > "$RUNNER_TEMP/quiet.sh" <<'QEOF'
+          #!/bin/bash
+          bash --noprofile --norc -eo pipefail "$1" >> "$QLOG" 2>&1
+          rc=$?
+          echo "[шаг завершён, код $rc]" >> "$QLOG"
+          [ $rc -ne 0 ] && echo "Шаг завершился с ошибкой, код $rc (подробности в закрытом хранилище)"
+          exit $rc
+          QEOF
+          chmod +x "$RUNNER_TEMP/quiet.sh"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Установка
+        run: pip install "google-genai==2.28.0"
+      - name: Проверка без запросов
+        run: |
+          python3 programs/sources/test_sources.py
+          python3 -I programs/sources/test_delivery.py
+      - name: Сбор новых записей
+        env:
+          ARTIFICIAL_ANALYSIS_API_KEY: ${{ secrets.ARTIFICIAL_ANALYSIS_API_KEY }}
+        run: python3 -u programs/sources/collect_sources.py ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
+      - name: Сводка (1-го и 16-го)
+        if: always()
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
+          GEMINI_API_KEY_6: ${{ secrets.GEMINI_API_KEY_6 }}
+          GEMINI_API_KEY_7: ${{ secrets.GEMINI_API_KEY_7 }}
+          GEMINI_API_KEY_8: ${{ secrets.GEMINI_API_KEY_8 }}
+          GEMINI_API_KEY_9: ${{ secrets.GEMINI_API_KEY_9 }}
+        run: python3 -u programs/sources/digest.py ${{ github.event.inputs.force_digest == 'yes' && '--force' || '' }}
+      - name: Подготовка обновления справочника (только подтверждённое)
+        if: always()
+        run: python3 -u programs/sources/prepare_reference_update.py
+      - name: Что говорят практики в видео (для справочника)
+        if: always()
+        continue-on-error: true
+        run: python3 -u programs/sources/video_signals.py
+      - name: Отправка сводки в Telegram (если секреты заданы)
+        if: always()
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 -u programs/sources/send_telegram.py
+      - name: Поиск новых источников (раз в 3 месяца; в другие дни сразу выходит)
+        if: always()
+        continue-on-error: true
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python3 -u programs/sources/discover_sources.py
+      - name: Контроль процессов и напоминания Владельцу
+        if: always()
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 -I programs/control/test_control.py && python3 -u programs/control/control.py run
+      - name: Записать в хранилище
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trial/results/runlogs 2>/dev/null || true
+          for p in registry/sources_state.json registry/source_items.json registry/sources_report.json registry/reference_disputed.json registry/telegram_state.json registry/video_signals.json registry/sources.json registry/source_candidates.json registry/control reference/updates digests; do [ -e "$p" ] && git add "$p"; done
+          git diff --cached --quiet && { echo "nothing new"; exit 0; }
+          git commit -m "Источники новостей ИИ: прогон ${{ github.run_number }}"
+          pushed=0
+          for i in 1 2 3; do
+            if git pull --rebase -q origin main && git push -q origin HEAD:main; then pushed=1; break; fi
+            git rebase --abort 2>/dev/null || true
+            sleep 5
+          done
+          if [ "$pushed" != 1 ]; then
+            # Never lose a finished run: keep its commit on a side branch and turn the run red.
+            git push -q origin "HEAD:refs/heads/pending-run-${{ github.run_number }}" || true
+            echo "::error::Results could not be merged into main; saved on branch pending-run-${{ github.run_number }}"
+            exit 1
+          fi

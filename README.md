@@ -1,0 +1,1 @@
+Only workflow files live here (public repository: free run minutes). Code and data stay in a private repository; runs fetch it with a token stored as a secret. Step logs are written to the private repository, not shown here.

@@ -1,0 +1,81 @@
+name: Таблица тем (каждый день)
+
+# Daily after the evening video run: rebuild the topics overview table from the registry (free, no AI request),
+# keep it in reports/ and send it to the Owner in Telegram. 20:30 UTC = 00:30 Baku.
+on:
+  schedule:
+    - cron: "30 20 * * *"
+    - cron: "20 5 * * *"    # 09:20 Baku: fresh build (and fresh time stamp) before the computer copy at 10:00 (Owner 2026-11-10); GitHub may start crons late, hence 40 min margin
+  workflow_run:
+    workflows: ["Карточки видео (каждый день)"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: topics-table
+  cancel-in-progress: false
+
+env:
+  QLOG: ${{ github.workspace }}/trial/results/runlogs/topics-table-daily-${{ github.run_number }}.txt
+defaults:
+  run:
+    shell: ${{ runner.temp }}/quiet.sh {0}
+
+jobs:
+  run:
+    name: Сборка таблицы
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: m-reqemsal-ai/ii-arhitektor
+          ref: main
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+      - name: Тихий запуск (подробности только в закрытом хранилище)
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "$QLOG")"
+          cat > "$RUNNER_TEMP/quiet.sh" <<'QEOF'
+          #!/bin/bash
+          bash --noprofile --norc -eo pipefail "$1" >> "$QLOG" 2>&1
+          rc=$?
+          echo "[шаг завершён, код $rc]" >> "$QLOG"
+          [ $rc -ne 0 ] && echo "Шаг завершился с ошибкой, код $rc (подробности в закрытом хранилище)"
+          exit $rc
+          QEOF
+          chmod +x "$RUNNER_TEMP/quiet.sh"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Установка
+        run: pip install python-docx
+      - name: Сборка
+        run: |
+          DAY=$(TZ=Asia/Baku date +%d.%m.%Y)
+          mkdir -p reports
+          python3 -I programs/control/topics_table.py reports/topics_table.docx --date "$DAY" --stamp "$(TZ=Asia/Baku date +%d.%m.%Y\ %H:%M)"
+          python3 - <<'PY'
+          import json, datetime
+          json.dump({"updated": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}, open("registry/control/topics_table_state.json", "w"))
+          PY
+          echo "DAY=$DAY" >> "$GITHUB_ENV"
+      - name: Сохранение в хранилище
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add trial/results/runlogs 2>/dev/null || true
+          git add reports/topics_table.docx registry/control/topics_table_state.json
+          git commit -m "Таблица тем: ежедневное обновление" || exit 0
+          for i in 1 2 3; do git pull --rebase -q && git push && break || sleep 20; done
+      - name: Отправка в Telegram (если секреты заданы)
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          cp reports/topics_table.docx "Таблица тем поиска $DAY.docx"
+          python3 -I programs/control/send_table.py "Таблица тем поиска $DAY.docx" "Таблица тем поиска на $DAY: обновлена автоматически"

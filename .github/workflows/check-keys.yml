@@ -1,0 +1,80 @@
+name: Проверка ключей
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 1 * *"  # monthly check, 1st day of the month, 06:17 UTC
+
+permissions:
+  contents: write
+
+concurrency:
+  group: check-keys
+  cancel-in-progress: false
+
+env:
+  QLOG: ${{ github.workspace }}/trial/results/runlogs/check-keys-${{ github.run_number }}.txt
+defaults:
+  run:
+    shell: ${{ runner.temp }}/quiet.sh {0}
+
+jobs:
+  check:
+    name: Ключи Gemini и YouTube
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: m-reqemsal-ai/ii-arhitektor
+          ref: main
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+      - name: Тихий запуск (подробности только в закрытом хранилище)
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "$QLOG")"
+          cat > "$RUNNER_TEMP/quiet.sh" <<'QEOF'
+          #!/bin/bash
+          bash --noprofile --norc -eo pipefail "$1" >> "$QLOG" 2>&1
+          rc=$?
+          echo "[шаг завершён, код $rc]" >> "$QLOG"
+          [ $rc -ne 0 ] && echo "Шаг завершился с ошибкой, код $rc (подробности в закрытом хранилище)"
+          exit $rc
+          QEOF
+          chmod +x "$RUNNER_TEMP/quiet.sh"
+      - name: Проверка
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
+          GEMINI_API_KEY_6: ${{ secrets.GEMINI_API_KEY_6 }}
+          GEMINI_API_KEY_7: ${{ secrets.GEMINI_API_KEY_7 }}
+          GEMINI_API_KEY_8: ${{ secrets.GEMINI_API_KEY_8 }}
+          GEMINI_API_KEY_9: ${{ secrets.GEMINI_API_KEY_9 }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          rc=0
+          python3 programs/healthcheck/check_keys.py || rc=$?
+          if [ "$rc" = 0 ]; then
+            python3 -I programs/control/control.py mark check-keys
+          else
+            python3 -I programs/control/control.py mark check-keys --fail "key check failed (exit $rc)"
+          fi
+          echo "$rc" > /tmp/check_rc
+      - name: Записать отметку в хранилище
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trial/results/runlogs 2>/dev/null || true
+          git add registry/control/marks.json
+          git diff --cached --quiet && { echo "nothing new"; } || {
+            git commit -m "Проверка ключей: отметка о выполнении"
+            for i in 1 2 3; do
+              if git pull --rebase -q origin main && git push -q origin HEAD:main; then break; fi
+              git rebase --abort 2>/dev/null || true
+              sleep 5
+            done
+          }
+          exit "$(cat /tmp/check_rc)"
