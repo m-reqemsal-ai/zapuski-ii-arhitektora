@@ -23,7 +23,7 @@ jobs:
   run:
     name: Следующие видео стартового сбора
     runs-on: ubuntu-latest
-    timeout-minutes: 200
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v5
         with:
@@ -105,7 +105,7 @@ jobs:
           python3 -I programs/control/gate.py .
       - name: Карточки
         if: steps.gate.outputs.hold != 'true'
-        timeout-minutes: 145
+        timeout-minutes: 320
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
@@ -121,7 +121,7 @@ jobs:
           python3 -u programs/cards/make_cards.py
           --config programs/cards/daily.json
           --out "trial/results/cards-daily-${{ github.run_number }}"
-          --budget-min 130
+          --budget-min 295
       - name: Слежение за новыми моделями
         if: always()
         continue-on-error: true
@@ -159,7 +159,7 @@ jobs:
             exit 1
           fi
       - name: Следующий запуск (если остановило только время)
-        if: success() && steps.flow.outputs.continue == 'true' && false  # off 2026-11-08: GitHub free minutes nearly used (DEC-179)
+        if: success() && steps.flow.outputs.continue == 'true'  # on again 2026-11-13: the runs live in the public repo (free minutes); Owner: work until the limits end, automatically
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh api -X POST "repos/${{ github.repository }}/actions/workflows/cards-daily.yml/dispatches" -f ref=main
