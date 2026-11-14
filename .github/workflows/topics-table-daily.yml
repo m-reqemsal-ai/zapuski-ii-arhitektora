@@ -57,7 +57,7 @@ jobs:
         run: |
           DAY=$(TZ=Asia/Baku date +%d.%m.%Y)
           mkdir -p reports
-          python3 -I programs/control/topics_table.py reports/topics_table.docx --date "$DAY" --stamp "$(TZ=Asia/Baku date +%d.%m.%Y\ %H:%M)"
+          python3 -I programs/control/topics_table.py reports/topics_table.docx --date "$DAY"
           python3 - <<'PY'
           import json, datetime
           json.dump({"updated": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}, open("registry/control/topics_table_state.json", "w"))
