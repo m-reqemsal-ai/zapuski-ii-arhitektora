@@ -6,6 +6,7 @@ on:
   schedule:
     - cron: "30 20 * * *"
     - cron: "20 5 * * *"    # 09:20 Baku: fresh build (and fresh time stamp) before the computer copy at 10:00 (Owner 2026-11-10); GitHub may start crons late, hence 40 min margin
+    - cron: "10 */2 * * *"   # every two hours (free: public repo, no AI request); computer copies every two hours too (DEC-260)
   workflow_run:
     workflows: ["Карточки видео (каждый день)"]
     types: [completed]
