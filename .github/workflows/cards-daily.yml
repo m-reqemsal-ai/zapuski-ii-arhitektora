@@ -118,13 +118,13 @@ jobs:
           python3 -u programs/triage/triage.py --budget-min 15 --out-report "trial/results/cards-daily-${{ github.run_number }}"
       - name: Вторая проверка убранных видео (DEC-079)
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 30
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           python3 -I programs/triage/test_second_check.py
-          python3 -u programs/triage/second_check.py --budget-min 10 --out-report "trial/results/cards-daily-${{ github.run_number }}"
+          python3 -u programs/triage/second_check.py --budget-min 25 --out-report "trial/results/cards-daily-${{ github.run_number }}"
       - name: Ворота перед карточками (DEC-181)
         id: gate
         run: |
