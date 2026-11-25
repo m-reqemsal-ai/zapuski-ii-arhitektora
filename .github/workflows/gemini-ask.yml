@@ -1,0 +1,82 @@
+name: Текстовые задания Gemini (вручную)
+
+# Owner 2026-11-25: heavy text work (structuring lists, grouping, merging) goes to Gemini through the free API,
+# not through Claude and not through the browser. One start runs every task of a tasks file in the private
+# repository (programs/common/ask_text.py); answers are committed next to the tasks.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tasks_file:
+        description: "Файл заданий (в закрытом хранилище)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gemini-ask
+  cancel-in-progress: false
+
+env:
+  QLOG: ${{ github.workspace }}/trial/results/runlogs/gemini-ask-${{ github.run_number }}.txt
+defaults:
+  run:
+    shell: /home/runner/work/_temp/quiet.sh {0}
+
+jobs:
+  run:
+    name: Задания Gemini
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: m-reqemsal-ai/ii-arhitektor
+          ref: main
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+      - name: Тихий запуск (подробности только в закрытом хранилище)
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "$QLOG")"
+          cat > "$RUNNER_TEMP/quiet.sh" <<'QEOF'
+          #!/bin/bash
+          bash --noprofile --norc -eo pipefail "$1" >> "$QLOG" 2>&1
+          rc=$?
+          echo "[шаг завершён, код $rc]" >> "$QLOG"
+          [ $rc -ne 0 ] && echo "Шаг завершился с ошибкой, код $rc (подробности в закрытом хранилище)"
+          exit $rc
+          QEOF
+          chmod +x "$RUNNER_TEMP/quiet.sh"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Установка
+        run: pip install "google-genai==2.28.0"
+      - name: Задания
+        continue-on-error: true
+        timeout-minutes: 50
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TASKS: ${{ inputs.tasks_file }}
+        run: python3 -u programs/common/ask_text.py --tasks "$TASKS"
+      - name: Записать в хранилище
+        shell: bash
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A trial/results/runlogs registry/notebooklm/gemini-answers 2>/dev/null || true
+          git diff --cached --quiet && { echo "nothing new"; exit 0; }
+          git commit -m "Текстовые задания Gemini: запуск ${{ github.run_number }}"
+          pushed=0
+          for i in 1 2 3; do
+            if git pull --rebase -q origin main && git push -q origin HEAD:main; then pushed=1; break; fi
+            git rebase --abort 2>/dev/null || true
+            sleep 5
+          done
+          if [ "$pushed" != 1 ]; then
+            git push -q origin "HEAD:refs/heads/pending-ask-${{ github.run_number }}" || true
+            echo "::error::Results could not be merged into main; saved on branch pending-ask-${{ github.run_number }}"
+            exit 1
+          fi
