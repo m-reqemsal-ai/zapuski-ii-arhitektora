@@ -80,7 +80,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A trial/results/runlogs "$OUT_DIR" 2>/dev/null || true
+          # refresh the final-notebook bundles so the browser program picks up the new extracts (DEC-333)
+          python3 -I programs/notebooklm/final_load.py --topic applications.easy-income --topic-no 1 || true
+          git add -A trial/results/runlogs "$OUT_DIR" registry/notebooklm/final-load 2>/dev/null || true
           git diff --cached --quiet && { echo "nothing new"; exit 0; }
           git commit -m "Выжимка видео без речи: запуск ${{ github.run_number }}"
           pushed=0
