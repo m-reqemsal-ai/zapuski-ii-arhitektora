@@ -73,7 +73,10 @@ jobs:
           GEMINI_API_KEY_7: ${{ secrets.GEMINI_API_KEY_7 }}
           GEMINI_API_KEY_8: ${{ secrets.GEMINI_API_KEY_8 }}
           GEMINI_API_KEY_9: ${{ secrets.GEMINI_API_KEY_9 }}
-        run: python3 -u programs/knowledge/frames_extract.py --ids "$IDS_FILE" --out "$OUT_DIR" --budget-min 300
+        run: |
+          python3 -u programs/knowledge/frames_extract.py --ids "$IDS_FILE" --out "$OUT_DIR" --budget-min 240
+          # topic 2 after topic 1 (Owner 28.11: topic 2 runs in parallel, topic 1 keeps priority); same keys, what quota is left
+          python3 -u programs/knowledge/frames_extract.py --ids registry/knowledge/frames-extracts/models-tools.free-access.ids.txt --out registry/knowledge/frames-extracts/models-tools.free-access --topic-ru "Бесплатные и льготные способы пользоваться ИИ (Claude, ChatGPT, NotebookLM, Gemini)" --budget-min 100 || true
       - name: Записать в хранилище
         shell: bash
         if: always()
@@ -82,7 +85,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # refresh the final-notebook bundles so the browser program picks up the new extracts (DEC-333)
           python3 -I programs/notebooklm/final_load.py --topic applications.easy-income --topic-no 1 || true
-          git add -A trial/results/runlogs "$OUT_DIR" registry/notebooklm/final-load 2>/dev/null || true
+          git add -A trial/results/runlogs "$OUT_DIR" registry/knowledge/frames-extracts/models-tools.free-access registry/notebooklm/final-load 2>/dev/null || true
           git diff --cached --quiet && { echo "nothing new"; exit 0; }
           git commit -m "Выжимка видео без речи: запуск ${{ github.run_number }}"
           pushed=0
